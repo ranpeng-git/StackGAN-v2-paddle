@@ -4,8 +4,8 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 
-import torch.utils.data as data
-import torchvision.transforms as transforms
+import paddle.io as data
+import paddle.vision.transforms as transforms
 from PIL import Image
 import PIL
 import os
@@ -16,14 +16,11 @@ import numpy as np
 import pandas as pd
 from miscc.config import cfg
 
-import torch.utils.data as data
-from PIL import Image
-import os
-import os.path
 import six
 import string
 import sys
-import torch
+import paddle
+
 if sys.version_info[0] == 2:
     import cPickle as pickle
 else:
@@ -57,7 +54,8 @@ def get_imgs(img_path, imsize, bbox=None,
     ret = []
     for i in range(cfg.TREE.BRANCH_NUM):
         if i < (cfg.TREE.BRANCH_NUM - 1):
-            re_img = transforms.Scale(imsize[i])(img)
+            # re_img = transforms.Scale(imsize[i])(img)
+            re_img = transforms.Resize(img.shape*imsize[i])(img)
         else:
             re_img = img
         ret.append(normalize(re_img))

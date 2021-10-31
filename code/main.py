@@ -1,6 +1,6 @@
 from __future__ import print_function
-import torch
-import torchvision.transforms as transforms
+import paddle
+import paddle.vision.transforms as transforms
 
 import argparse
 import os
@@ -89,9 +89,7 @@ if __name__ == "__main__":
     elif args.manualSeed is None:
         args.manualSeed = random.randint(1, 10000)
     random.seed(args.manualSeed)
-    torch.manual_seed(args.manualSeed)
-    if cfg.CUDA:
-        torch.cuda.manual_seed_all(args.manualSeed)
+    paddle.seed(args.manualSeed)
 
     now = datetime.datetime.now(dateutil.tz.tzlocal())
     timestamp = now.strftime('%Y_%m_%d_%H_%M_%S')
@@ -128,7 +126,7 @@ if __name__ == "__main__":
                               transform=image_transform)
     assert dataset
     num_gpu = len(cfg.GPU_ID.split(','))
-    dataloader = torch.utils.data.DataLoader(
+    dataloader = paddle.io.DataLoader(
         dataset, batch_size=cfg.TRAIN.BATCH_SIZE * num_gpu,
         drop_last=True, shuffle=bshuffle, num_workers=int(cfg.WORKERS))
 
