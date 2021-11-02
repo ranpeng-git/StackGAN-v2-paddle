@@ -61,7 +61,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Train a GAN network')
     parser.add_argument('--cfg', dest='cfg_file',
                         help='optional config file',
-                        default='cfg/birds_proGAN.yml', type=str)
+                        default='cfg/coco_s1.yml', type=str)
     parser.add_argument('--gpu', dest='gpu_id', type=str, default='-1')
     parser.add_argument('--data_dir', dest='data_dir', type=str, default='')
     parser.add_argument('--manualSeed', type=int, help='manual seed')
@@ -105,9 +105,12 @@ if __name__ == "__main__":
     # Get data loader
     imsize = cfg.TREE.BASE_SIZE * (2 ** (cfg.TREE.BRANCH_NUM-1))
     image_transform = transforms.Compose([
-        transforms.Scale(int(imsize * 76 / 64)),
+        # transforms.Scale(int(imsize * 76 / 64)),
+        transforms.Resize(int(imsize * 76 / 64)),
         transforms.RandomCrop(imsize),
         transforms.RandomHorizontalFlip()])
+
+
     if cfg.DATA_DIR.find('lsun') != -1:
         from datasets import LSUNClass
         dataset = LSUNClass('%s/%s_%s_lmdb' %
@@ -128,7 +131,7 @@ if __name__ == "__main__":
     num_gpu = len(cfg.GPU_ID.split(','))
     dataloader = paddle.io.DataLoader(
         dataset, batch_size=cfg.TRAIN.BATCH_SIZE * num_gpu,
-        drop_last=True, shuffle=bshuffle, num_workers=int(cfg.WORKERS))
+        drop_last=True, shuffle=bshuffle, num_workers= 0 ) #int(cfg.WORKERS)
 
     # Define models and go to train/evaluate
     if not cfg.GAN.B_CONDITION:

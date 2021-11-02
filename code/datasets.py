@@ -4,34 +4,54 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 
-import paddle.io as data
-import paddle.vision.transforms as transforms
-from PIL import Image
-import PIL
-import os
-import os.path
-import pickle
-import random
-import numpy as np
-import pandas as pd
+from nltk.tokenize import RegexpTokenizer
+from collections import defaultdict
 from miscc.config import cfg
 
-import six
-import string
-import sys
 import paddle
+import paddle.io as data
+import paddle.vision.transforms as transforms
 
+import os
+import sys
+import numpy as np
+import pandas as pd
+from PIL import Image
+import numpy.random as random
 if sys.version_info[0] == 2:
     import cPickle as pickle
 else:
     import pickle
+    
+def Variable(x):
+    paddle.create_parameter(shape=x.shape ,
+                            dtype=str(x.numpy().dtype),
+                            default_initializer= paddle.nn.initializer.Assign(x))
+    return x
 
-IMG_EXTENSIONS = ['.jpg', '.JPG', '.jpeg', '.JPEG',
-                  '.png', '.PNG', '.ppm', '.PPM', '.bmp', '.BMP']
+def prepare_data(data):
+    imgs, captions, captions_lens, class_ids, keys = data
 
+    # sort data by the length in a decreasing order
+    sorted_cap_lens, sorted_cap_indices = \
+        paddle.sort(captions_lens, 0, True)
 
-def is_image_file(filename):
-    return any(filename.endswith(extension) for extension in IMG_EXTENSIONS)
+    real_imgs = []
+    for i in range(len(imgs)):
+        imgs[i] = imgs[i][sorted_cap_indices]
+        real_imgs.append(Variable(imgs[i]))
+
+    captions = captions[sorted_cap_indices].squeeze()
+    class_ids = class_ids[sorted_cap_indices].numpy()
+    # sent_indices = sent_indices[sorted_cap_indices]
+    keys = [keys[i] for i in sorted_cap_indices.numpy()]
+    # print('keys', type(keys), keys[-1])  # list
+
+    captions = Variable(captions)
+    sorted_cap_lens = Variable(sorted_cap_lens)
+
+    return [real_imgs, captions, sorted_cap_lens,
+            class_ids, keys]
 
 
 def get_imgs(img_path, imsize, bbox=None,
@@ -55,7 +75,8 @@ def get_imgs(img_path, imsize, bbox=None,
     for i in range(cfg.TREE.BRANCH_NUM):
         if i < (cfg.TREE.BRANCH_NUM - 1):
             # re_img = transforms.Scale(imsize[i])(img)
-            re_img = transforms.Resize(img.shape*imsize[i])(img)
+            re_img = transforms.Resize(imsize[i])(img)
+            # re_img = transforms.Resize(img.shape*imsize[i])(img)
         else:
             re_img = img
         ret.append(normalize(re_img))
@@ -63,129 +84,16 @@ def get_imgs(img_path, imsize, bbox=None,
     return ret
 
 
-class ImageFolder(data.Dataset):
-    def __init__(self, root, split_dir='train', custom_classes=None,
-                 base_size=64, transform=None, target_transform=None):
-        root = os.path.join(root, split_dir)
-        classes, class_to_idx = self.find_classes(root, custom_classes)
-        imgs = self.make_dataset(classes, class_to_idx)
-        if len(imgs) == 0:
-            raise(RuntimeError("Found 0 images in subfolders of: " + root + "\n"
-                               "Supported image extensions are: " + ",".join(IMG_EXTENSIONS)))
-
-        self.root = root
-        self.imgs = imgs
-        self.classes = classes
-        self.num_classes = len(classes)
-        self.class_to_idx = class_to_idx
-
-        self.transform = transform
-        self.target_transform = target_transform
-        self.norm = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-
-        self.imsize = []
-        for i in range(cfg.TREE.BRANCH_NUM):
-            self.imsize.append(base_size)
-            base_size = base_size * 2
-        print('num_classes', self.num_classes)
-
-    def find_classes(self, dir, custom_classes):
-        classes = []
-
-        for d in os.listdir(dir):
-            if os.path.isdir:
-                if custom_classes is None or d in custom_classes:
-                    classes.append(os.path.join(dir, d))
-        print('Valid classes: ', len(classes), classes)
-
-        classes.sort()
-        class_to_idx = {classes[i]: i for i in range(len(classes))}
-        return classes, class_to_idx
-
-    def make_dataset(self, classes, class_to_idx):
-        images = []
-        for d in classes:
-            for root, _, fnames in sorted(os.walk(d)):
-                for fname in fnames:
-                    if is_image_file(fname):
-                        path = os.path.join(root, fname)
-                        item = (path, class_to_idx[d])
-                        images.append(item)
-        print('The number of images: ', len(images))
-        return images
-
-    def __getitem__(self, index):
-        path, target = self.imgs[index]
-        imgs_list = get_imgs(path, self.imsize,
-                             transform=self.transform,
-                             normalize=self.norm)
-
-        return imgs_list
-
-    def __len__(self):
-        return len(self.imgs)
-
-
-class LSUNClass(data.Dataset):
-    def __init__(self, db_path, base_size=64,
-                 transform=None, target_transform=None):
-        import lmdb
-        self.db_path = db_path
-        self.env = lmdb.open(db_path, max_readers=1, readonly=True, lock=False,
-                             readahead=False, meminit=False)
-        with self.env.begin(write=False) as txn:
-            self.length = txn.stat()['entries']
-            print('length: ', self.length)
-        cache_file = db_path + '/cache'
-        if os.path.isfile(cache_file):
-            self.keys = pickle.load(open(cache_file, "rb"))
-            print('Load:', cache_file, 'keys: ', len(self.keys))
-        else:
-            with self.env.begin(write=False) as txn:
-                self.keys = [key for key, _ in txn.cursor()]
-            pickle.dump(self.keys, open(cache_file, "wb"))
-
-        self.imsize = []
-        for i in range(cfg.TREE.BRANCH_NUM):
-            self.imsize.append(base_size)
-            base_size = base_size * 2
-
-        self.transform = transform
-        self.target_transform = target_transform
-        self.norm = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-
-    def __getitem__(self, index):
-        env = self.env
-        with env.begin(write=False) as txn:
-            imgbuf = txn.get(self.keys[index])
-
-        buf = six.BytesIO()
-        buf.write(imgbuf)
-        buf.seek(0)
-        imgs = get_imgs(buf, self.imsize,
-                        transform=self.transform,
-                        normalize=self.norm)
-        return imgs
-
-    def __len__(self):
-        return self.length
-
-    def __repr__(self):
-        return self.__class__.__name__ + ' (' + self.db_path + ')'
-
-
 class TextDataset(data.Dataset):
-    def __init__(self, data_dir, split='train', embedding_type='cnn-rnn',
-                 base_size=64, transform=None, target_transform=None):
+    def __init__(self, data_dir, split='train',
+                 base_size=64,
+                 transform=None, target_transform=None):
         self.transform = transform
         self.norm = transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
         self.target_transform = target_transform
+        self.embeddings_num = cfg.TEXT.CAPTIONS_PER_IMAGE
 
         self.imsize = []
         for i in range(cfg.TREE.BRANCH_NUM):
@@ -200,15 +108,11 @@ class TextDataset(data.Dataset):
             self.bbox = None
         split_dir = os.path.join(data_dir, split)
 
-        self.filenames = self.load_filenames(split_dir)
-        self.embeddings = self.load_embedding(split_dir, embedding_type)
-        self.class_id = self.load_class_id(split_dir, len(self.filenames))
-        self.captions = self.load_all_captions()
+        self.filenames, self.captions, self.ixtoword, \
+            self.wordtoix, self.n_words = self.load_text_data(data_dir, split)
 
-        if cfg.TRAIN.FLAG:
-            self.iterator = self.prepair_training_pairs
-        else:
-            self.iterator = self.prepair_test_pairs
+        self.class_id = self.load_class_id(split_dir, len(self.filenames))
+        self.number_example = len(self.filenames)
 
     def load_bbox(self):
         data_dir = self.data_dir
@@ -234,36 +138,111 @@ class TextDataset(data.Dataset):
         #
         return filename_bbox
 
-    def load_all_captions(self):
-        def load_captions(caption_name):  # self,
-            cap_path = caption_name
+    def load_captions(self, data_dir, filenames):
+        all_captions = []
+        for i in range(len(filenames)):
+            cap_path = '%s/text/%s.txt' % (data_dir, filenames[i])
             with open(cap_path, "r") as f:
                 captions = f.read().decode('utf8').split('\n')
-            captions = [cap.replace("\ufffd\ufffd", " ")
-                        for cap in captions if len(cap) > 0]
-            return captions
+                cnt = 0
+                for cap in captions:
+                    if len(cap) == 0:
+                        continue
+                    cap = cap.replace("\ufffd\ufffd", " ")
+                    # picks out sequences of alphanumeric characters as tokens
+                    # and drops everything else
+                    tokenizer = RegexpTokenizer(r'\w+')
+                    tokens = tokenizer.tokenize(cap.lower())
+                    # print('tokens', tokens)
+                    if len(tokens) == 0:
+                        print('cap', cap)
+                        continue
 
-        caption_dict = {}
-        for key in self.filenames:
-            caption_name = '%s/text/%s.txt' % (self.data_dir, key)
-            captions = load_captions(caption_name)
-            caption_dict[key] = captions
-        return caption_dict
+                    tokens_new = []
+                    for t in tokens:
+                        t = t.encode('ascii', 'ignore').decode('ascii')
+                        if len(t) > 0:
+                            tokens_new.append(t)
+                    all_captions.append(tokens_new)
+                    cnt += 1
+                    if cnt == self.embeddings_num:
+                        break
+                if cnt < self.embeddings_num:
+                    print('ERROR: the captions for %s less than %d'
+                          % (filenames[i], cnt))
+        return all_captions
 
-    def load_embedding(self, data_dir, embedding_type):
-        if embedding_type == 'cnn-rnn':
-            embedding_filename = '/char-CNN-RNN-embeddings.pickle'
-        elif embedding_type == 'cnn-gru':
-            embedding_filename = '/char-CNN-GRU-embeddings.pickle'
-        elif embedding_type == 'skip-thought':
-            embedding_filename = '/skip-thought-embeddings.pickle'
+    def build_dictionary(self, train_captions, test_captions):
+        word_counts = defaultdict(float)
+        captions = train_captions + test_captions
+        for sent in captions:
+            for word in sent:
+                word_counts[word] += 1
 
-        with open(data_dir + embedding_filename, 'rb') as f:
-            embeddings = pickle.load(f)
-            embeddings = np.array(embeddings)
-            # embedding_shape = [embeddings.shape[-1]]
-            print('embeddings: ', embeddings.shape)
-        return embeddings
+        vocab = [w for w in word_counts if word_counts[w] >= 0]
+
+        ixtoword = {}
+        ixtoword[0] = '<end>'
+        wordtoix = {}
+        wordtoix['<end>'] = 0
+        ix = 1
+        for w in vocab:
+            wordtoix[w] = ix
+            ixtoword[ix] = w
+            ix += 1
+
+        train_captions_new = []
+        for t in train_captions:
+            rev = []
+            for w in t:
+                if w in wordtoix:
+                    rev.append(wordtoix[w])
+            # rev.append(0)  # do not need '<end>' token
+            train_captions_new.append(rev)
+
+        test_captions_new = []
+        for t in test_captions:
+            rev = []
+            for w in t:
+                if w in wordtoix:
+                    rev.append(wordtoix[w])
+            # rev.append(0)  # do not need '<end>' token
+            test_captions_new.append(rev)
+
+        return [train_captions_new, test_captions_new,
+                ixtoword, wordtoix, len(ixtoword)]
+
+    def load_text_data(self, data_dir, split):
+        filepath = os.path.join(data_dir, 'captions.pickle')
+        train_names = self.load_filenames(data_dir, 'train')
+        test_names = self.load_filenames(data_dir, 'test')
+        if not os.path.isfile(filepath):
+            train_captions = self.load_captions(data_dir, train_names)
+            test_captions = self.load_captions(data_dir, test_names)
+
+            train_captions, test_captions, ixtoword, wordtoix, n_words = \
+                self.build_dictionary(train_captions, test_captions)
+            with open(filepath, 'wb') as f:
+                pickle.dump([train_captions, test_captions,
+                             ixtoword, wordtoix], f, protocol=2)
+                print('Save to: ', filepath)
+        else:
+            with open(filepath, 'rb') as f:
+                x = pickle.load(f)
+                train_captions, test_captions = x[0], x[1]
+                ixtoword, wordtoix = x[2], x[3]
+                del x
+                n_words = len(ixtoword)
+                print('Load from: ', filepath)
+        if split == 'train':
+            # a list of list: each list contains
+            # the indices of words in a sentence
+            captions = train_captions
+            filenames = train_names
+        else:  # split=='test'
+            captions = test_captions
+            filenames = test_names
+        return filenames, captions, ixtoword, wordtoix, n_words
 
     def load_class_id(self, data_dir, total_num):
         if os.path.isfile(data_dir + '/class_info.pickle'):
@@ -273,68 +252,57 @@ class TextDataset(data.Dataset):
             class_id = np.arange(total_num)
         return class_id
 
-    def load_filenames(self, data_dir):
-        filepath = os.path.join(data_dir, 'filenames.pickle')
-        with open(filepath, 'rb') as f:
-            filenames = pickle.load(f)
-        print('Load filenames from: %s (%d)' % (filepath, len(filenames)))
+    def load_filenames(self, data_dir, split):
+        filepath = '%s/%s/filenames.pickle' % (data_dir, split)
+        if os.path.isfile(filepath):
+            with open(filepath, 'rb') as f:
+                filenames = pickle.load(f)
+            print('Load filenames from: %s (%d)' % (filepath, len(filenames)))
+        else:
+            filenames = []
         return filenames
 
-    def prepair_training_pairs(self, index):
-        key = self.filenames[index]
-        if self.bbox is not None:
-            bbox = self.bbox[key]
-            data_dir = '%s/CUB_200_2011' % self.data_dir
+    def get_caption(self, sent_ix):
+        # a list of indices for a sentence
+        sent_caption = np.asarray(self.captions[sent_ix]).astype('int64')
+        if (sent_caption == 0).sum() > 0:
+            print('ERROR: do not need END (0) token', sent_caption)
+        num_words = len(sent_caption)
+        # pad with 0s (i.e., '<end>')
+        x = np.zeros((cfg.TEXT.WORDS_NUM, 1), dtype='int64')
+        x_len = num_words
+        if num_words <= cfg.TEXT.WORDS_NUM:
+            x[:num_words, 0] = sent_caption
         else:
-            bbox = None
-            data_dir = self.data_dir
-        # captions = self.captions[key]
-        embeddings = self.embeddings[index, :, :]
-        img_name = '%s/images/%s.jpg' % (data_dir, key)
-        imgs = get_imgs(img_name, self.imsize,
-                        bbox, self.transform, normalize=self.norm)
-
-        wrong_ix = random.randint(0, len(self.filenames) - 1)
-        if(self.class_id[index] == self.class_id[wrong_ix]):
-            wrong_ix = random.randint(0, len(self.filenames) - 1)
-        wrong_key = self.filenames[wrong_ix]
-        if self.bbox is not None:
-            wrong_bbox = self.bbox[wrong_key]
-        else:
-            wrong_bbox = None
-        wrong_img_name = '%s/images/%s.jpg' % \
-            (data_dir, wrong_key)
-        wrong_imgs = get_imgs(wrong_img_name, self.imsize,
-                              wrong_bbox, self.transform, normalize=self.norm)
-
-        embedding_ix = random.randint(0, embeddings.shape[0] - 1)
-        embedding = embeddings[embedding_ix, :]
-        if self.target_transform is not None:
-            embedding = self.target_transform(embedding)
-
-        return imgs, wrong_imgs, embedding, key  # captions
-
-    def prepair_test_pairs(self, index):
-        key = self.filenames[index]
-        if self.bbox is not None:
-            bbox = self.bbox[key]
-            data_dir = '%s/CUB_200_2011' % self.data_dir
-        else:
-            bbox = None
-            data_dir = self.data_dir
-        # captions = self.captions[key]
-        embeddings = self.embeddings[index, :, :]
-        img_name = '%s/images/%s.jpg' % (data_dir, key)
-        imgs = get_imgs(img_name, self.imsize,
-                        bbox, self.transform, normalize=self.norm)
-
-        if self.target_transform is not None:
-            embeddings = self.target_transform(embeddings)
-
-        return imgs, embeddings, key  # captions
+            ix = list(np.arange(num_words))  # 1, 2, 3,..., maxNum
+            np.random.shuffle(ix)
+            ix = ix[:cfg.TEXT.WORDS_NUM]
+            ix = np.sort(ix)
+            x[:, 0] = sent_caption[ix]
+            x_len = cfg.TEXT.WORDS_NUM
+        return x, x_len
 
     def __getitem__(self, index):
-        return self.iterator(index)
+        #
+        key = self.filenames[index]
+        cls_id = self.class_id[index]
+        #
+        if self.bbox is not None:
+            bbox = self.bbox[key]
+            data_dir = '%s/CUB_200_2011' % self.data_dir
+        else:
+            bbox = None
+            data_dir = self.data_dir
+        #
+        img_name = '%s/images/train2014/%s.jpg' % (data_dir, key)   ### this need unzip coco's train2014 to coco
+        imgs = get_imgs(img_name, self.imsize,
+                        bbox, self.transform, normalize=self.norm)
+        # random select a sentence
+        sent_ix = random.randint(0, self.embeddings_num)
+        new_sent_ix = index * self.embeddings_num + sent_ix
+        caps, cap_len = self.get_caption(new_sent_ix)
+        return imgs, caps, cap_len, cls_id, key
+
 
     def __len__(self):
         return len(self.filenames)

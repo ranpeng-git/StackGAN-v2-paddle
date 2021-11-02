@@ -16,17 +16,17 @@ class INCEPTION_V3(nn.Layer):
     def __init__(self):
         super(INCEPTION_V3, self).__init__()
 
+        self.model = inception_v3.inception_v3(pretrained=True)
 
-        self.model = inception_v3.InceptionV3()
-        url = "https://paddlegan.bj.bcebos.com/InceptionV3.pdparams"
-        path = pth_url(url)
-        state_dict = paddle.load(path)
+        # url = "https://paddlegan.bj.bcebos.com/InceptionV3.pdparams"
+        # path = pth_url(url)
+        # state_dict = paddle.load(path)
+        # self.model.set_state_dict(state_dict)
 
-
-        self.model.set_state_dict(state_dict)
         for param in self.model.parameters():
             param.requires_grad = False
-        print('Load pretrained model from ', url)
+            
+        # print('Load pretrained model from ', url)
         # print(next(self.model.parameters()).data)
         # print(self.model)
 
@@ -61,7 +61,7 @@ class GLU(nn.Layer):
 def conv3x3(in_planes, out_planes):
     "3x3 convolution with padding"
     return nn.Conv2D(in_planes, out_planes, kernel_size=3, stride=1,
-                     padding=1, bias_attr==False)
+                     padding=1, bias_attr = False)
 
 
 # ############## G networks ################################################
@@ -154,7 +154,7 @@ class INIT_STAGE_G(nn.Layer):
         in_dim = self.in_dim
         ngf = self.gf_dim
         self.fc = nn.Sequential(
-            nn.Linear(in_dim, ngf * 4 * 4 * 2, bias_attr==False),
+            nn.Linear(in_dim, ngf * 4 * 4 * 2, bias_attr=False),
             nn.BatchNorm1D(ngf * 4 * 4 * 2),
             GLU())
 
@@ -303,7 +303,7 @@ def Block3x3_leakRelu(in_planes, out_planes):
 # Downsale the spatial size by a factor of 2
 def downBlock(in_planes, out_planes):
     block = nn.Sequential(
-        nn.Conv2d(in_planes, out_planes, 4, 2, 1, bias_attr=False),
+        nn.Conv2D(in_planes, out_planes, 4, 2, 1, bias_attr=False),
         nn.BatchNorm2D(out_planes),
         nn.LeakyReLU(0.2)
     )

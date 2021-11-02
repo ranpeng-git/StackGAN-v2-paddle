@@ -18,6 +18,10 @@ __C.DATA_DIR = ''
 __C.GPU_ID = '0'
 __C.CUDA = True
 
+__C.Z_DIM = 100
+__C.IMSIZE = 64
+__C.STAGE = 1
+
 __C.WORKERS = 6
 
 __C.TREE = edict()
@@ -39,6 +43,7 @@ __C.TRAIN.MAX_EPOCH = 600
 __C.TRAIN.SNAPSHOT_INTERVAL = 2000
 __C.TRAIN.DISCRIMINATOR_LR = 2e-4
 __C.TRAIN.GENERATOR_LR = 2e-4
+__C.TRAIN.LR_DECAY_EPOCH = 600
 __C.TRAIN.FLAG = True
 __C.TRAIN.NET_G = ''
 __C.TRAIN.NET_D = ''
@@ -52,15 +57,18 @@ __C.TRAIN.COEFF.COLOR_LOSS = 0.0
 # Modal options
 __C.GAN = edict()
 __C.GAN.EMBEDDING_DIM = 128
+__C.GAN.CONDITION_DIM = 128
 __C.GAN.DF_DIM = 64
 __C.GAN.GF_DIM = 64
 __C.GAN.Z_DIM = 100
 __C.GAN.NETWORK_TYPE = 'default'
 __C.GAN.R_NUM = 2
-__C.GAN.B_CONDITION = False
+__C.GAN.B_CONDITION = True
 
 __C.TEXT = edict()
 __C.TEXT.DIMENSION = 1024
+__C.TEXT.CAPTIONS_PER_IMAGE =5
+__C.TEXT.WORDS_NUM = 15
 
 
 def _merge_a_into_b(a, b):
@@ -70,10 +78,12 @@ def _merge_a_into_b(a, b):
     if type(a) is not edict:
         return
 
-    for k, v in a.iteritems():
+    for k, v in a.items():
+        print(k)
         # a must specify keys that are in b
-        if not b.has_key(k):
-            raise KeyError('{} is not a valid config key'.format(k))
+        # if not b.has_key(k):
+        # if k not in b:
+        #     raise KeyError('{} is not a valid config key'.format(k))
 
         # the types must match, too
         old_type = type(b[k])

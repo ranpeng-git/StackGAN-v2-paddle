@@ -3,7 +3,7 @@ from six.moves import range
 
 import paddle
 import paddle.nn as nn
-from paddle.autograd import Variable
+
 import paddle.optimizer as optim
 # import paddle.vision.utils as vutils
 import save_utils as vutils
@@ -17,7 +17,7 @@ from miscc.config import cfg
 from miscc.utils import mkdir_p
 
 from tensorboard import summary
-from tensorboard import FileWriter
+# from tensorboard import FileWriter
 
 from model import G_NET, D_NET64, D_NET128, D_NET256, D_NET512, D_NET1024, INCEPTION_V3
 
@@ -99,7 +99,7 @@ def load_params(model, new_param):
 
 
 def copy_G_params(model):
-    flatten = deepcopy(list(p.data for p in model.parameters()))
+    flatten = deepcopy(list(p.detach() for p in model.parameters()))
     return flatten
 
 
@@ -264,13 +264,13 @@ class GANTrainer(object):
             mkdir_p(self.model_dir)
             mkdir_p(self.image_dir)
             mkdir_p(self.log_dir)
-            self.summary_writer = FileWriter(self.log_dir)
+            # self.summary_writer = FileWriter(self.log_dir)
 
         s_gpus = cfg.GPU_ID.split(',')
         self.gpus = [int(ix) for ix in s_gpus]
         self.num_gpus = len(self.gpus)
         paddle.device.set_device(self.gpus[0])
-        cudnn.benchmark = True
+        # cudnn.benchmark = True
 
         self.batch_size = cfg.TRAIN.BATCH_SIZE * self.num_gpus
         self.max_epoch = cfg.TRAIN.MAX_EPOCH
@@ -399,7 +399,7 @@ class GANTrainer(object):
         
         fixed_noise =  paddle.create_parameter(shape = [self.batch_size ,nz] , 
                                                 dtype = 'float32',
-                                                default_initializer= paddle.nn.initializer.Assign(paddle.nn.initializer.Normal(mean=0.0, std=1.0)))
+                                                default_initializer= paddle.nn.initializer.Normal(mean=0.0, std=1.0))
 
         # if cfg.CUDA:
         #     self.criterion.cuda()
@@ -427,7 +427,7 @@ class GANTrainer(object):
                 # noise = paddle.create_parameter(shape = [self.batch_size ,nz] , 
                 #                         dtype = 'float32',
                 #                         default_initializer= paddle.nn.initializer.Normal(0,1))
-        )
+                # )
                 self.fake_imgs, _, _ = self.netG(noise)
 
                 #######################################################
@@ -444,7 +444,7 @@ class GANTrainer(object):
                 errG_total = self.train_Gnet(count)
                 for p, avg_p in zip(self.netG.parameters(), avg_param_G):
                     # avg_p.mul_(0.999).add_(0.001, p.data)
-                    avg_p = avg_mul*(0.999).add(0.001).add(p.detach())
+                    avg_p = avg_p*(0.999).add(0.001).add(p.detach())
 
                 # for inception score
                 pred = self.inception_model(self.fake_imgs[-1].detach())
@@ -555,7 +555,7 @@ class GANTrainer(object):
             netG.eval()
             num_batches = int(cfg.TEST.SAMPLE_NUM / self.batch_size)
             cnt = 0
-            for step in xrange(num_batches):
+            for step in range(num_batches):
                 # noise.data.normal_(0, 1)
                 noise = paddle.create_parameter(shape = [self.batch_size ,nz] , 
                                         dtype = 'float32',
@@ -581,13 +581,13 @@ class condGANTrainer(object):
             mkdir_p(self.model_dir)
             mkdir_p(self.image_dir)
             mkdir_p(self.log_dir)
-            self.summary_writer = FileWriter(self.log_dir)
+            # self.summary_writer = FileWriter(self.log_dir)
 
         s_gpus = cfg.GPU_ID.split(',')
         self.gpus = [int(ix) for ix in s_gpus]
         self.num_gpus = len(self.gpus)
-        paddle.device.set_device(self.gpus[0])
-        cudnn.benchmark = True
+        # paddle.device.set_device('gpu')
+        # cudnn.benchmark = True
 
         self.batch_size = cfg.TRAIN.BATCH_SIZE * self.num_gpus
         self.max_epoch = cfg.TRAIN.MAX_EPOCH
@@ -597,7 +597,7 @@ class condGANTrainer(object):
         self.num_batches = len(self.data_loader)
 
     def prepare_data(self, data):
-        imgs, w_imgs, t_embedding, _ = data
+        imgs, w_imgs, t_embedding ,_ = data
 
         real_vimgs, wrong_vimgs = [], []
         # if cfg.CUDA:
@@ -659,7 +659,7 @@ class condGANTrainer(object):
         # log
         if flag == 0:
             summary_D = summary.scalar('D_loss%d' % idx, errD.detach().numpy()[0])
-            self.summary_writer.add_summary(summary_D, count)
+            # self.summary_writer.add_summary(summary_D, count)
         return errD
 
     def train_Gnet(self, count):
@@ -679,7 +679,7 @@ class condGANTrainer(object):
             errG_total = errG_total + errG
             if flag == 0:
                 summary_D = summary.scalar('G_loss%d' % i, errG.detach().numpy()[0])
-                self.summary_writer.add_summary(summary_D, count)
+                # self.summary_writer.add_summary(summary_D, count)
 
         # Compute color consistency losses
         if cfg.TRAIN.COEFF.COLOR_LOSS > 0:
@@ -693,9 +693,9 @@ class condGANTrainer(object):
                 errG_total = errG_total + like_mu2 + like_cov2
                 if flag == 0:
                     sum_mu = summary.scalar('G_like_mu2', like_mu2.detach().numpy()[0])
-                    self.summary_writer.add_summary(sum_mu, count)
+                    # self.summary_writer.add_summary(sum_mu, count)
                     sum_cov = summary.scalar('G_like_cov2', like_cov2.detach().numpy()[0])
-                    self.summary_writer.add_summary(sum_cov, count)
+                    # self.summary_writer.add_summary(sum_cov, count)
             if self.num_Ds > 2:
                 mu1, covariance1 = compute_mean_covariance(self.fake_imgs[-2])
                 mu2, covariance2 = \
@@ -706,9 +706,9 @@ class condGANTrainer(object):
                 errG_total = errG_total + like_mu1 + like_cov1
                 if flag == 0:
                     sum_mu = summary.scalar('G_like_mu1', like_mu1.detach().numpy()[0])
-                    self.summary_writer.add_summary(sum_mu, count)
+                    # self.summary_writer.add_summary(sum_mu, count)
                     sum_cov = summary.scalar('G_like_cov1', like_cov1.detach().numpy()[0])
-                    self.summary_writer.add_summary(sum_cov, count)
+                    # self.summary_writer.add_summary(sum_cov, count)
 
         kl_loss = KL_loss(mu, logvar) * cfg.TRAIN.COEFF.KL
         errG_total = errG_total + kl_loss
@@ -745,7 +745,7 @@ class condGANTrainer(object):
         
         fixed_noise =  paddle.create_parameter(shape = [self.batch_size ,nz] , 
                                                 dtype = 'float32',
-                                                default_initializer= paddle.nn.initializer.Assign(paddle.nn.initializer.Normal(mean=0.0, std=1.0)))
+                                                default_initializer= paddle.nn.initializer.Normal(mean=0.0, std=1.0))
 
 
         self.gradient_one = paddle.to_tensor([1.0])
@@ -807,9 +807,9 @@ class condGANTrainer(object):
                     summary_D = summary.scalar('D_loss', errD_total.detach().numpy()[0])
                     summary_G = summary.scalar('G_loss', errG_total.detach().numpy()[0])
                     summary_KL = summary.scalar('KL_loss', kl_loss.detach().numpy()[0])
-                    self.summary_writer.add_summary(summary_D, count)
-                    self.summary_writer.add_summary(summary_G, count)
-                    self.summary_writer.add_summary(summary_KL, count)
+                    # self.summary_writer.add_summary(summary_D, count)
+                    # self.summary_writer.add_summary(summary_G, count)
+                    # self.summary_writer.add_summary(summary_KL, count)
 
                 count = count + 1
 
@@ -821,8 +821,8 @@ class condGANTrainer(object):
                     #
                     self.fake_imgs, _, _ = \
                         self.netG(fixed_noise, self.txt_embedding)
-                    save_img_results(self.imgs_tcpu, self.fake_imgs, self.num_Ds,
-                                     count, self.image_dir, self.summary_writer)
+                    # save_img_results(self.imgs_tcpu, self.fake_imgs, self.num_Ds,
+                    #                  count, self.image_dir, self.summary_writer)
                     #
                     load_params(self.netG, backup_para)
 
@@ -832,12 +832,12 @@ class condGANTrainer(object):
                         mean, std = compute_inception_score(predictions, 10)
                         # print('mean:', mean, 'std', std)
                         m_incep = summary.scalar('Inception_mean', mean)
-                        self.summary_writer.add_summary(m_incep, count)
+                        # self.summary_writer.add_summary(m_incep, count)
                         #
                         mean_nlpp, std_nlpp = \
                             negative_log_posterior_probability(predictions, 10)
                         m_nlpp = summary.scalar('NLPP_mean', mean_nlpp)
-                        self.summary_writer.add_summary(m_nlpp, count)
+                        # self.summary_writer.add_summary(m_nlpp, count)
                         #
                         predictions = []
 
@@ -850,7 +850,7 @@ class condGANTrainer(object):
                      kl_loss.detach().numpy()[0], end_t - start_t))
 
         save_model(self.netG, avg_param_G, self.netsD, count, self.model_dir)
-        self.summary_writer.close()
+        # self.summary_writer.close()
 
     def save_superimages(self, images_list, filenames,
                          save_dir, split_dir, imsize):

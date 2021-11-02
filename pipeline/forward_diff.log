@@ -1,0 +1,5 @@
+[2021/11/02 07:36:23] root INFO: net_sD: 
+[2021/11/02 07:36:23] root INFO: 	mean diff: check passed: True, value: 1.7369166016578674e-07
+[2021/11/02 07:36:23] root INFO: net_G: 
+[2021/11/02 07:36:23] root INFO: 	mean diff: check passed: True, value: 4.754552307417725e-09
+[2021/11/02 07:36:23] root INFO: diff check passed
